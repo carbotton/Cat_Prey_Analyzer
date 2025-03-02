@@ -626,8 +626,8 @@ class Cascade:
 class NodeBot():
     def __init__(self):
         #Insert Chat ID and Bot Token according to Telegram API
-        self.CHAT_ID = '1838352679'
-        self.BOT_TOKEN = '7180254005:AAEXleUBHQeaqR5USOF6rbqkSFje_kFYnrU'
+        self.CHAT_ID = ''
+        self.BOT_TOKEN = ''
         update_queue = queue.Queue()
 
         self.last_msg_id = 0
