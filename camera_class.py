@@ -14,35 +14,30 @@ import numpy as np
 import io, gc
 
 class Camera:
-    def __init__(self,):
-        IRPin = 36
-        # GPIO Stuff
-        GPIO.setmode(GPIO.BOARD)
-        GPIO.setup(IRPin, GPIO.OUT)
-        GPIO.output(IRPin, GPIO.LOW)
-
+    def __init__(self, ip_camera_url):
+        self.ip_camera_url = ip_camera_url  # URL for the IP camera stream
+        self.cap = cv2.VideoCapture(self.ip_camera_url)
+        if not self.cap.isOpened():
+            raise Exception("Could not connect to IP camera")
+        
         time.sleep(2)
-
+    
     def fill_queue(self, deque):
-        while(1):
+        while True:
             gc.collect()
-            camera = PiCamera()
-            camera.framerate = 3
-            camera.vflip = False
-            camera.hflip = False
-            camera.resolution = (2592, 1944)
-            camera.exposure_mode = 'sports'
-            stream = io.BytesIO()
-            for i, frame in enumerate(camera.capture_continuous(stream, format="jpeg", use_video_port=True)):
-                stream.seek(0)
-                data = np.frombuffer(stream.getvalue(), dtype=np.uint8)
-                image = cv2.imdecode(data, 1)
-                deque.append(
-                    (datetime.now(pytz.timezone('Europe/Zurich')).strftime("%Y_%m_%d_%H-%M-%S.%f"), image))
-                #deque.pop()
-                print("Quelength: " + str(len(deque)) + "\tStreamsize: " + str(sys.getsizeof(stream)))
-                if i == 60:
-                    print("Loop ended, starting over.")
-                    camera.close()
-                    del camera
-                    break
+            
+            ret, frame = self.cap.read()
+            if not ret:
+                print("Failed to retrieve frame from IP camera")
+                continue
+            
+            timestamp = datetime.now(pytz.timezone('Europe/Zurich')).strftime("%Y_%m_%d_%H-%M-%S.%f")
+            deque.append((timestamp, frame))
+            
+            print("Quelength:", len(deque), "Streamsize:", sys.getsizeof(frame))
+            
+            time.sleep(1 / 3)  # Maintain ~3 FPS like the original script
+    
+    def close(self):
+        self.cap.release()
+        cv2.destroyAllWindows()
