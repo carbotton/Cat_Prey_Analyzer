@@ -1,6 +1,6 @@
 import RPi.GPIO as GPIO
-from picamera.array import PiRGBArray
-from picamera import PiCamera
+#from picamera.array import PiRGBArray
+#from picamera import PiCamera
 from gpiozero import CPUTemperature
 
 from collections import deque

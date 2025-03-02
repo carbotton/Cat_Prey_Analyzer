@@ -7,20 +7,21 @@ from collections import deque
 from threading import Thread
 from multiprocessing import Process
 import telegram
-from telegram.ext import Updater, CommandHandler, Filters, MessageHandler
+from telegram.ext import Updater, CommandHandler, filters, MessageHandler
 import xml.etree.ElementTree as ET
+import queue
 
 sys.path.append('/home/carbotton/smart_cat_door/Cat_Prey_Analyzer')
 sys.path.append('/home/carbotton')  
-from CatPreyAnalyzer.model_stages import PC_Stage, FF_Stage, Eye_Stage, Haar_Stage, CC_MobileNet_Stage
-from CatPreyAnalyzer.camera_class import Camera
+from model_stages import PC_Stage, FF_Stage, Eye_Stage, Haar_Stage, CC_MobileNet_Stage
+from camera_class import Camera
 cat_cam_py = str(Path(os.getcwd()).parents[0])
 
 
 class Spec_Event_Handler():
     def __init__(self):
-        self.img_dir = os.path.join(cat_cam_py, 'CatPreyAnalyzer/debug/input')
-        self.out_dir = os.path.join(cat_cam_py, 'CatPreyAnalyzer/debug/output')
+        self.img_dir = os.path.join(cat_cam_py, 'Cat_Prey_Analyzer/debug/input')
+        self.out_dir = os.path.join(cat_cam_py, 'Cat_Prey_Analyzer/debug/output')
 
         self.img_list = [x for x in sorted(os.listdir(self.img_dir)) if'.jpg' in x]
         self.base_cascade = Cascade()
@@ -297,7 +298,7 @@ class Sequential_Cascade_Feeder():
     def single_debug(self):
         start_time = time.time()
         target_img_name = 'dummy_img.jpg'
-        target_img = cv2.imread(os.path.join(cat_cam_py, 'CatPreyAnalyzer/readme_images/lenna_casc_Node1_001557_02_2020_05_24_09-49-35.jpg'))
+        target_img = cv2.imread(os.path.join(cat_cam_py, 'Cat_Prey_Analyzer/readme_images/lenna_casc_Node1_001557_02_2020_05_24_09-49-35.jpg'))
         cascade_obj = self.feed(target_img=target_img, img_name=target_img_name)[1]
         print('Runtime:', time.time() - start_time)
         return cascade_obj
@@ -625,11 +626,12 @@ class Cascade:
 class NodeBot():
     def __init__(self):
         #Insert Chat ID and Bot Token according to Telegram API
-        #self.CHAT_ID = 'xxxxxxxxxxxxx'
-        #self.BOT_TOKEN = 'xxxxxxxxxxxxx'
+        self.CHAT_ID = '1838352679'
+        self.BOT_TOKEN = '7180254005:AAEXleUBHQeaqR5USOF6rbqkSFje_kFYnrU'
+        update_queue = queue.Queue()
 
         self.last_msg_id = 0
-        self.bot_updater = Updater(token=self.BOT_TOKEN)
+        self.bot_updater = Updater(self.BOT_TOKEN, update_queue)
         self.bot_dispatcher = self.bot_updater.dispatcher
         self.commands = ['/help', '/nodestatus', '/sendlivepic', '/sendlastcascpic', '/letin', '/reboot']
 
@@ -711,7 +713,7 @@ class NodeBot():
 
 class DummyDQueque():
     def __init__(self):
-        self.target_img = cv2.imread(os.path.join(cat_cam_py, 'CatPreyAnalyzer/readme_images/lenna_casc_Node1_001557_02_2020_05_24_09-49-35.jpg'))
+        self.target_img = cv2.imread(os.path.join(cat_cam_py, 'Cat_Prey_Analyzer/readme_images/lenna_casc_Node1_001557_02_2020_05_24_09-49-35.jpg'))
 
     def dummy_queque_filler(self, main_deque):
         while(True):
