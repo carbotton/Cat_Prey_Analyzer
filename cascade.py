@@ -6,10 +6,9 @@ from datetime import datetime
 from collections import deque
 from threading import Thread
 from multiprocessing import Process
-import telegram
-from telegram.ext import Updater, CommandHandler, filters, MessageHandler
 import xml.etree.ElementTree as ET
 import queue
+import logging
 
 sys.path.append('/home/carbotton/smart_cat_door/Cat_Prey_Analyzer')
 sys.path.append('/home/carbotton')  
@@ -69,6 +68,17 @@ class Spec_Event_Handler():
             #self.log_to_csv(img_event_obj=single_cascade)
 
 class Sequential_Cascade_Feeder():
+
+    def log_message(self, message):
+        logging.info(message)
+        print(message)
+
+    def save_log_image(self, img, caption):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        img_path = os.path.join(log_image_dir, f"{timestamp}.jpg")
+        cv2.imwrite(img_path, img)
+        logging.info(f"{caption} (image saved to {img_path})")
+        print(f"{caption} (image saved to {img_path})")
     def __init__(self):
         self.log_dir = os.path.join(os.getcwd(), 'log')
         print('Log Dir:', self.log_dir)
@@ -93,7 +103,7 @@ class Sequential_Cascade_Feeder():
         self.PREY_FLAG = None
         self.NO_PREY_FLAG = None
         self.queues_cumuli_in_event = []
-        self.bot = NodeBot()
+        # self.bot removed
         self.processing_pool = []
         self.main_deque = deque()
 
@@ -111,8 +121,7 @@ class Sequential_Cascade_Feeder():
         self.cumulus_points = 0
 
         #Close the node_letin flag
-        self.bot.node_let_in_flag = False
-
+        
         self.event_objects.clear()
         self.queues_cumuli_in_event.clear()
         self.main_deque.clear()
@@ -161,7 +170,7 @@ class Sequential_Cascade_Feeder():
 
         sender_img = event_objects[max_prey_index].output_img
         caption = 'Cumuli: ' + str(cumuli) + ' => PREY IN DA HOUSE!' + ' 🐁🐁🐁' + event_str
-        self.bot.send_img(img=sender_img, caption=caption)
+        self.save_log_image(sender_img, caption)
         return
 
     def send_no_prey_message(self, event_objects, cumuli):
@@ -179,7 +188,7 @@ class Sequential_Cascade_Feeder():
 
         sender_img = event_objects[min_prey_index].output_img
         caption = 'Cumuli: ' + str(cumuli) + ' => Cat is clean...' + ' 🐱' + event_str
-        self.bot.send_img(img=sender_img, caption=caption)
+        self.save_log_image(sender_img, caption)
         return
 
     def send_dk_message(self, event_objects, cumuli):
@@ -194,7 +203,7 @@ class Sequential_Cascade_Feeder():
 
         sender_img = face_events[0].output_img
         caption = 'Cumuli: ' + str(cumuli) + ' => Cant say for sure...' + ' 🤷‍♀️' + event_str + '\nMaybe use /letin?'
-        self.bot.send_img(img=sender_img, caption=caption)
+        self.save_log_image(sender_img, caption)
         return
 
     def get_event_nr(self):
@@ -212,17 +221,14 @@ class Sequential_Cascade_Feeder():
         #Feed the latest image in the Queue through the cascade
         cascade_obj = self.feed(target_img=self.main_deque[self.fps_offset][1], img_name=self.main_deque[self.fps_offset][0])[1]
         print('Runtime:', time.time() - start_time)
-        done_timestamp = datetime.now(pytz.timezone('Europe/Zurich')).strftime("%Y_%m_%d_%H-%M-%S.%f")
+        done_timestamp = datetime.now(pytz.timezone('America/Montevideo')).strftime("%Y_%m_%d_%H-%M-%S.%f")
         print('Timestamp at Done Runtime:', done_timestamp)
 
         overhead = datetime.strptime(done_timestamp, "%Y_%m_%d_%H-%M-%S.%f") - datetime.strptime(self.main_deque[self.fps_offset][0], "%Y_%m_%d_%H-%M-%S.%f")
         print('Overhead:', overhead.total_seconds())
 
         #Add this such that the bot has some info
-        self.bot.node_queue_info = len(self.main_deque)
-        self.bot.node_live_img = self.main_deque[self.fps_offset][1]
-        self.bot.node_over_head_info = overhead.total_seconds()
-
+                        
         # Always delete the left part
         for i in range(self.fps_offset + 1):
             self.main_deque.popleft()
@@ -234,8 +240,7 @@ class Sequential_Cascade_Feeder():
             self.event_objects.append(cascade_obj)
 
             #Last cat pic for bot
-            self.bot.node_last_casc_img = cascade_obj.output_img
-
+            
             self.fps_offset = 0
             #If face found add the cumulus points
             if cascade_obj.face_bool:
@@ -307,7 +312,7 @@ class Sequential_Cascade_Feeder():
         # Do this to force run all networks s.t. the network inference time stabilizes
         self.single_debug()
 
-        camera = Camera()
+        camera = Camera(ip_camera_url='rtsp://169.254.1.1:554/live/0/MAIN')
         camera_thread = Thread(target=camera.fill_queue, args=(self.main_deque,), daemon=True)
         camera_thread.start()
 
@@ -318,7 +323,7 @@ class Sequential_Cascade_Feeder():
                 # Clean up garbage
                 gc.collect()
                 print('DELETING QUEQUE BECAUSE OVERLOADED!')
-                self.bot.send_text(message='Running Hot... had to kill Queque!')
+                self.log_message(message='Running Hot... had to kill Queque!')
 
             elif len(self.main_deque) > self.DEFAULT_FPS_OFFSET:
                 self.queque_worker()
@@ -328,12 +333,12 @@ class Sequential_Cascade_Feeder():
                 time.sleep(0.25)
 
             #Check if user force opens the door
-            if self.bot.node_let_in_flag == True:
+            # if let_in flag: (removed)
                 self.reset_cumuli_et_al()
                 open_time = 5
-                self.bot.send_text('Ok door is open for ' + str(open_time) + 's...')
+                self.log_message('Ok door is open for ' + str(open_time) + 's...')
                 time.sleep(open_time)
-                self.bot.send_text('Door locked again, back to business...')
+                self.log_message('Door locked again, back to business...')
 
     def dummy_queque_handler(self):
         # Do this to force run all networks s.t. the network inference time stabilizes
@@ -347,7 +352,7 @@ class Sequential_Cascade_Feeder():
             if len(self.main_deque) > self.QUEQUE_MAX_THRESHOLD:
                 self.main_deque.clear()
                 print('DELETING QUEQUE BECAUSE OVERLOADED!')
-                self.bot.send_text(message='Running Hot... had to kill Queque!')
+                self.log_message(message='Running Hot... had to kill Queque!')
 
             elif len(self.main_deque) > self.DEFAULT_FPS_OFFSET:
                 self.queque_worker()
@@ -357,12 +362,12 @@ class Sequential_Cascade_Feeder():
                 time.sleep(0.25)
 
             #Check if user force opens the door
-            if self.bot.node_let_in_flag == True:
+            # if let_in flag: (removed)
                 self.reset_cumuli_et_al()
                 open_time = 5
-                self.bot.send_text('Ok door is open for ' + str(open_time) + 's...')
+                self.log_message('Ok door is open for ' + str(open_time) + 's...')
                 time.sleep(open_time)
-                self.bot.send_text('Door locked again, back to business...')
+                self.log_message('Door locked again, back to business...')
 
     def feed(self, target_img, img_name):
         target_event_obj = Event_Element(img_name=img_name, cc_target_img=target_img)
@@ -623,101 +628,10 @@ class Cascade:
                     lineType)
         return img
 
-class NodeBot():
-    def __init__(self):
-        #Insert Chat ID and Bot Token according to Telegram API
-        self.CHAT_ID = ''
-        self.BOT_TOKEN = ''
-        update_queue = queue.Queue()
-
-        self.last_msg_id = 0
-        self.bot_updater = Updater(self.BOT_TOKEN, update_queue)
-        self.bot_dispatcher = self.bot_updater.dispatcher
-        self.commands = ['/help', '/nodestatus', '/sendlivepic', '/sendlastcascpic', '/letin', '/reboot']
-
-        self.node_live_img = None
-        self.node_queue_info = None
-        self.node_status = None
-        self.node_last_casc_img = None
-        self.node_over_head_info = None
-        self.node_let_in_flag = None
-
-        #Init the listener
-        self.init_bot_listener()
-
-    def init_bot_listener(self):
-        telegram.Bot(token=self.BOT_TOKEN).send_message(chat_id=self.CHAT_ID, text='Good Morning, NodeBot is online!' + '🤙')
-        # Add all commands to handler
-        help_handler = CommandHandler('help', self.bot_help_cmd)
-        self.bot_dispatcher.add_handler(help_handler)
-        node_status_handler = CommandHandler('nodestatus', self.bot_send_status)
-        self.bot_dispatcher.add_handler(node_status_handler)
-        send_pic_handler = CommandHandler('sendlivepic', self.bot_send_live_pic)
-        self.bot_dispatcher.add_handler(send_pic_handler)
-        send_last_casc_pic = CommandHandler('sendlastcascpic', self.bot_send_last_casc_pic)
-        self.bot_dispatcher.add_handler(send_last_casc_pic)
-        letin = CommandHandler('letin', self.node_let_in)
-        self.bot_dispatcher.add_handler(letin)
-        reboot = CommandHandler('reboot', self.node_reboot)
-        self.bot_dispatcher.add_handler(reboot)
-
-        # Start the polling stuff
-        self.bot_updater.start_polling()
-
-    def bot_help_cmd(self, bot, update):
-        bot_message = 'Following commands supported:'
-        for command in self.commands:
-            bot_message += '\n ' + command
-        self.send_text(bot_message)
-
-    def node_let_in(self, bot, update):
-        self.node_let_in_flag = True
-
-    def node_reboot(self, bot, update):
-        for i in range(5):
-            time.sleep(1)
-            bot_message = 'Rebooting in ' + str(5-i) + ' seconds...'
-            self.send_text(bot_message)
-        self.send_text('See ya later Alligator 🐊🐊🐊')
-        os.system("sudo reboot")
-
-    def bot_send_last_casc_pic(self, bot, update):
-        if self.node_last_casc_img is not None:
-            cv2.imwrite('last_casc.jpg', self.node_last_casc_img)
-            caption = 'Last Cascade!'
-            self.send_img(self.node_last_casc_img, caption)
-        else:
-            self.send_text('No casc img available yet...')
-
-    def bot_send_live_pic(self, bot, update):
-        if self.node_live_img is not None:
-            cv2.imwrite('live_img.jpg', self.node_live_img)
-            caption = 'Here ya go...'
-            self.send_img(self.node_live_img, caption)
-        else:
-            self.send_text('No img available yet...')
-
-    def bot_send_status(self, bot, update):
-        if self.node_queue_info is not None and self.node_over_head_info is not None:
-            bot_message = 'Queue length: ' + str(self.node_queue_info) + '\nOverhead: ' + str(self.node_over_head_info) + 's'
-        else:
-            bot_message = 'No info yet...'
-        self.send_text(bot_message)
-
-    def send_text(self, message):
-        telegram.Bot(token=self.BOT_TOKEN).send_message(chat_id=self.CHAT_ID, text=message, parse_mode=telegram.ParseMode.MARKDOWN)
-
-    def send_img(self, img, caption):
-        cv2.imwrite('degubi.jpg', img)
-        telegram.Bot(token=self.BOT_TOKEN).send_photo(chat_id=self.CHAT_ID, photo=open('degubi.jpg', 'rb'), caption=caption)
-
 class DummyDQueque():
-    def __init__(self):
-        self.target_img = cv2.imread(os.path.join(cat_cam_py, 'Cat_Prey_Analyzer/readme_images/lenna_casc_Node1_001557_02_2020_05_24_09-49-35.jpg'))
-
-    def dummy_queque_filler(self, main_deque):
+    def __init__(self, main_deque):
         while(True):
-            img_name = datetime.now(pytz.timezone('Europe/Zurich')).strftime("%Y_%m_%d_%H-%M-%S.%f")
+            img_name = datetime.now(pytz.timezone('America/Montevideo')).strftime("%Y_%m_%d_%H-%M-%S.%f")
             main_deque.append((img_name, self.target_img))
             print("Took image, que-length:", main_deque.__len__())
             time.sleep(0.4)

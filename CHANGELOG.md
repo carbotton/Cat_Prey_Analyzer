@@ -21,7 +21,41 @@
 - Change to local path:
 from model_stages import PC_Stage, FF_Stage, Eye_Stage, Haar_Stage, CC_MobileNet_Stage
 from camera_class import Camera
+
+### 2025.04.17
+- Change these two lines because they returned error (older versions of telegram bot):
+		self.bot_updater = Updater(self.BOT_TOKEN, update_queue)
+		self.bot_dispatcher = self.bot_updater.dispatcher
+	Now we use:
+		self.bot_app = ApplicationBuilder().token(self.BOT_TOKEN).build()
+		
+- Change these:
+        help_handler = CommandHandler('help', self.bot_help_cmd)
+        self.bot_dispatcher.add_handler(help_handler)
+        node_status_handler = CommandHandler('nodestatus', self.bot_send_status)
+        self.bot_dispatcher.add_handler(node_status_handler)
+        send_pic_handler = CommandHandler('sendlivepic', self.bot_send_live_pic)
+        self.bot_dispatcher.add_handler(send_pic_handler)
+        send_last_casc_pic = CommandHandler('sendlastcascpic', self.bot_send_last_casc_pic)
+        self.bot_dispatcher.add_handler(send_last_casc_pic)
+        letin = CommandHandler('letin', self.node_let_in)
+        self.bot_dispatcher.add_handler(letin)
+        reboot = CommandHandler('reboot', self.node_reboot)
+        self.bot_dispatcher.add_handler(reboot)
+	For these:
+        self.bot_app.add_handler(CommandHandler("help", self.bot_help_cmd))
+        self.bot_app.add_handler(CommandHandler("nodestatus", self.bot_send_status))
+        self.bot_app.add_handler(CommandHandler("sendlivepic", self.bot_send_live_pic))
+        self.bot_app.add_handler(CommandHandler("sendlastcascpic", self.bot_send_last_casc_pic))
+        self.bot_app.add_handler(CommandHandler("letin", self.node_let_in))
+        self.bot_app.add_handler(CommandHandler("reboot", self.node_reboot))
+         
+ - Change this:
+		self.bot_updater.start_polling()
+    for this:
+		self.bot_app.run_polling()
   
+  - Now everything is in cascade_original.py and cascade.py doesn't use telegram bot.
 
 # catCam_starter.sh
 ### 2025.03.02
