@@ -79,6 +79,7 @@ class Sequential_Cascade_Feeder():
         cv2.imwrite(img_path, img)
         logging.info(f"{caption} (image saved to {img_path})")
         print(f"{caption} (image saved to {img_path})")
+        
     def __init__(self):
         self.log_dir = os.path.join(os.getcwd(), 'log')
         print('Log Dir:', self.log_dir)

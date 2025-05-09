@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+echo "Setting up IP address for Ethernet..."
+sudo ip addr add 169.254.1.2/16 dev eth0
+
 echo "Executing Cat_Prey_Analyzer"
 # Tensorflow Stuff
 export PYTHONPATH=$PYTHONPATH:/home/carbotton/models/research:/home/carbotton/models/research/slim:/home/carbotton/.local/lib/python3.7/site-packages
