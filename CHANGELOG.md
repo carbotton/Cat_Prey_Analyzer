@@ -56,8 +56,11 @@ from camera_class import Camera
 		self.bot_app.run_polling()
   
   - Now everything is in cascade_original.py and cascade.py doesn't use telegram bot.
+  
+### 2025.05.29
+- Expose new function prey_detected() to use outside of this file
 
-# catCam_starter.sh
+# caCam_starter.sh
 ### 2025.03.02
 - Change path from
 	export PYTHONPATH=$PYTHONPATH:/home/pi/tensorflow/models/research:/home/pi/tensorflow/models/research/slim:/home/pi/.local/lib/python3.7/site-packages
@@ -70,3 +73,12 @@ from camera_class import Camera
 # model_stages.py
 ### 2025.03.02
 - Change all CatPreyAnalyzer to Cat_Prey_Analyzer
+
+# override.py
+### 2025.05.29
+- Created file
+- Now if I use import override; override.let_in_flag I will have the state of let_in_flag
+
+# door_controller.py
+### 2025.05.29
+- Created file

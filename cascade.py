@@ -15,6 +15,7 @@ sys.path.append('/home/carbotton')
 from model_stages import PC_Stage, FF_Stage, Eye_Stage, Haar_Stage, CC_MobileNet_Stage
 from camera_class import Camera
 cat_cam_py = str(Path(os.getcwd()).parents[0])
+let_in_flag = False  # This will be updated by GPIO code elsewhere
 
 
 class Spec_Event_Handler():
@@ -75,7 +76,7 @@ class Sequential_Cascade_Feeder():
 
     def save_log_image(self, img, caption):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        img_path = os.path.join(log_image_dir, f"{timestamp}.jpg")
+        img_path = os.path.join(self.log_image_dir, f"{timestamp}.jpg")
         cv2.imwrite(img_path, img)
         logging.info(f"{caption} (image saved to {img_path})")
         print(f"{caption} (image saved to {img_path})")
@@ -103,10 +104,13 @@ class Sequential_Cascade_Feeder():
         self.face_counter = 0
         self.PREY_FLAG = None
         self.NO_PREY_FLAG = None
-        self.queues_cumuli_in_event = []
-        # self.bot removed
+        self.queues_cumuli_in_event = []        
         self.processing_pool = []
         self.main_deque = deque()
+
+        self.log_image_dir = os.path.join(os.getcwd(), 'log_images')
+        os.makedirs(self.log_image_dir, exist_ok=True)
+        
 
     def reset_cumuli_et_al(self):
         self.EVENT_FLAG = False
@@ -156,56 +160,111 @@ class Sequential_Cascade_Feeder():
                                  'PC_Class':img_obj.pc_prey_class, 'PC_Val':img_obj.pc_prey_val,
                                  'PC_Time':img_obj.pc_inference_time, 'Total_Time':img_obj.total_inference_time})
 
+    # def send_prey_message(self, event_objects, cumuli):
+        # prey_vals = [x.pc_prey_val for x in event_objects]
+        # max_prey_index = prey_vals.index(max(filter(lambda x: x is not None, prey_vals)))
+
+        # event_str = ''
+        # face_events = [x for x in event_objects if x.face_bool]
+        # for f_event in face_events:
+            # print('****************')
+            # print('Img_Name:', f_event.img_name)
+            # print('PC_Val:', str('%.2f' % f_event.pc_prey_val))
+            # print('****************')
+            # event_str += '\n' + f_event.img_name + ' => PC_Val: ' + str('%.2f' % f_event.pc_prey_val)
+
+        # sender_img = event_objects[max_prey_index].output_img
+        # caption = 'Cumuli: ' + str(cumuli) + ' => PREY IN DA HOUSE!' + ' 🐁🐁🐁' + event_str
+        # self.save_log_image(sender_img, caption)
+        # return
+
+    # def send_no_prey_message(self, event_objects, cumuli):
+        # prey_vals = [x.pc_prey_val for x in event_objects]
+        # min_prey_index = prey_vals.index(min(filter(lambda x: x is not None, prey_vals)))
+
+        # event_str = ''
+        # face_events = [x for x in event_objects if x.face_bool]
+        # for f_event in face_events:
+            # print('****************')
+            # print('Img_Name:', f_event.img_name)
+            # print('PC_Val:', str('%.2f' % f_event.pc_prey_val))
+            # print('****************')
+            # event_str += '\n' + f_event.img_name + ' => PC_Val: ' + str('%.2f' % f_event.pc_prey_val)
+
+        # sender_img = event_objects[min_prey_index].output_img
+        # caption = 'Cumuli: ' + str(cumuli) + ' => Cat is clean...' + ' 🐱' + event_str
+        # self.save_log_image(sender_img, caption)
+        # return
+
+    # def send_dk_message(self, event_objects, cumuli):
+        # event_str = ''
+        # face_events = [x for x in event_objects if x.face_bool]
+        # for f_event in face_events:
+            # print('****************')
+            # print('Img_Name:', f_event.img_name)
+            # print('PC_Val:', str('%.2f' % f_event.pc_prey_val))
+            # print('****************')
+            # event_str += '\n' + f_event.img_name + ' => PC_Val: ' + str('%.2f' % f_event.pc_prey_val)
+
+        # sender_img = face_events[0].output_img
+        # caption = 'Cumuli: ' + str(cumuli) + ' => Cant say for sure...' + ' 🤷‍♀️' + event_str + '\nMaybe use /letin?'
+        # self.save_log_image(sender_img, caption)
+        # return
+        
     def send_prey_message(self, event_objects, cumuli):
-        prey_vals = [x.pc_prey_val for x in event_objects]
-        max_prey_index = prey_vals.index(max(filter(lambda x: x is not None, prey_vals)))
-
-        event_str = ''
         face_events = [x for x in event_objects if x.face_bool]
-        for f_event in face_events:
-            print('****************')
-            print('Img_Name:', f_event.img_name)
-            print('PC_Val:', str('%.2f' % f_event.pc_prey_val))
-            print('****************')
-            event_str += '\n' + f_event.img_name + ' => PC_Val: ' + str('%.2f' % f_event.pc_prey_val)
+        if not face_events:
+            self.log_message("⚠️ Cat detected with prey, but no face found in any frame.")
+            return
 
-        sender_img = event_objects[max_prey_index].output_img
-        caption = 'Cumuli: ' + str(cumuli) + ' => PREY IN DA HOUSE!' + ' 🐁🐁🐁' + event_str
-        self.save_log_image(sender_img, caption)
+        f_event = face_events[0]  # Choose the first face frame
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_text = f"[{timestamp}] PREY DETECTED 🐁 - Cumuli: {cumuli:.2f} - Frame: {f_event.img_name} - Confidence: {f_event.pc_prey_val:.2f}"
+        
+        # Save image
+        img_filename = f"prey_{f_event.img_name}.jpg"
+        img_path = os.path.join(self.log_image_dir, img_filename)
+        cv2.imwrite(img_path, f_event.output_img)
+
+        self.log_message(log_text + f" (Saved: {img_filename})")
         return
+
 
     def send_no_prey_message(self, event_objects, cumuli):
-        prey_vals = [x.pc_prey_val for x in event_objects]
-        min_prey_index = prey_vals.index(min(filter(lambda x: x is not None, prey_vals)))
-
-        event_str = ''
         face_events = [x for x in event_objects if x.face_bool]
-        for f_event in face_events:
-            print('****************')
-            print('Img_Name:', f_event.img_name)
-            print('PC_Val:', str('%.2f' % f_event.pc_prey_val))
-            print('****************')
-            event_str += '\n' + f_event.img_name + ' => PC_Val: ' + str('%.2f' % f_event.pc_prey_val)
+        if not face_events:
+            self.log_message("⚠️ Cat detected without prey, but no face found in any frame.")
+            return
 
-        sender_img = event_objects[min_prey_index].output_img
-        caption = 'Cumuli: ' + str(cumuli) + ' => Cat is clean...' + ' 🐱' + event_str
-        self.save_log_image(sender_img, caption)
+        f_event = face_events[0]
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_text = f"[{timestamp}] CLEAN CAT ✅ - Cumuli: {cumuli:.2f} - Frame: {f_event.img_name} - Confidence: {f_event.pc_prey_val:.2f}"
+
+        img_filename = f"clean_{f_event.img_name}.jpg"
+        img_path = os.path.join(self.log_image_dir, img_filename)
+        cv2.imwrite(img_path, f_event.output_img)
+
+        self.log_message(log_text + f" (Saved: {img_filename})")
         return
+        
 
     def send_dk_message(self, event_objects, cumuli):
-        event_str = ''
         face_events = [x for x in event_objects if x.face_bool]
-        for f_event in face_events:
-            print('****************')
-            print('Img_Name:', f_event.img_name)
-            print('PC_Val:', str('%.2f' % f_event.pc_prey_val))
-            print('****************')
-            event_str += '\n' + f_event.img_name + ' => PC_Val: ' + str('%.2f' % f_event.pc_prey_val)
+        if not face_events:
+            self.log_message("⚠️ Unclear situation: no face frames to analyze.")
+            return
 
-        sender_img = face_events[0].output_img
-        caption = 'Cumuli: ' + str(cumuli) + ' => Cant say for sure...' + ' 🤷‍♀️' + event_str + '\nMaybe use /letin?'
-        self.save_log_image(sender_img, caption)
+        f_event = face_events[0]
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_text = f"[{timestamp}] UNCERTAIN 🤷 - Cumuli: {cumuli:.2f} - Frame: {f_event.img_name} - Confidence: {f_event.pc_prey_val:.2f}"
+
+        img_filename = f"uncertain_{f_event.img_name}.jpg"
+        img_path = os.path.join(self.log_image_dir, img_filename)
+        cv2.imwrite(img_path, f_event.output_img)
+
+        self.log_message(log_text + f" (Saved: {img_filename})")
         return
+        
 
     def get_event_nr(self):
         tree = ET.parse(os.path.join(self.log_dir, 'info.xml'))
@@ -217,30 +276,30 @@ class Sequential_Cascade_Feeder():
         return imgNr
 
     def queque_worker(self):
-        print('Working the Queque with len:', len(self.main_deque))
-        start_time = time.time()
+        print('Working the Queque with len:', len(self.main_deque)) # Log current queue size
+        start_time = time.time()    # Start timer to measure how long inference takes
         #Feed the latest image in the Queue through the cascade
-        cascade_obj = self.feed(target_img=self.main_deque[self.fps_offset][1], img_name=self.main_deque[self.fps_offset][0])[1]
-        print('Runtime:', time.time() - start_time)
+        cascade_obj = self.feed(target_img=self.main_deque[self.fps_offset][1], img_name=self.main_deque[self.fps_offset][0])[1]    # Feeds a frame (selected by fps_offset) into the ML pipeline.
+        print('Runtime:', time.time() - start_time)     # Logs how long inference took.
         done_timestamp = datetime.now(pytz.timezone('America/Montevideo')).strftime("%Y_%m_%d_%H-%M-%S.%f")
         print('Timestamp at Done Runtime:', done_timestamp)
 
-        overhead = datetime.strptime(done_timestamp, "%Y_%m_%d_%H-%M-%S.%f") - datetime.strptime(self.main_deque[self.fps_offset][0], "%Y_%m_%d_%H-%M-%S.%f")
+        overhead = datetime.strptime(done_timestamp, "%Y_%m_%d_%H-%M-%S.%f") - datetime.strptime(self.main_deque[self.fps_offset][0], "%Y_%m_%d_%H-%M-%S.%f")   # Calculates latency between frame capture and processing
         print('Overhead:', overhead.total_seconds())
-
-        #Add this such that the bot has some info
                         
-        # Always delete the left part
+        # Always delete the left part (clear used frames)
         for i in range(self.fps_offset + 1):
             self.main_deque.popleft()
 
-        if cascade_obj.cc_cat_bool == True:
+        if cascade_obj.cc_cat_bool == True: # CAT DETECTED
             #We are inside an event => add event_obj to list
+            # Start or continue an "event" — which is a series of cat-related frames
+            # Get a new event ID and store this frame.
             self.EVENT_FLAG = True
             self.event_nr = self.get_event_nr()
             self.event_objects.append(cascade_obj)
 
-            #Last cat pic for bot
+            #Last cat pic 
             
             self.fps_offset = 0
             #If face found add the cumulus points
@@ -292,7 +351,7 @@ class Sequential_Cascade_Feeder():
                     p.start()
                     self.processing_pool.append(p)
                     #self.log_event_to_csv(event_obj=self.event_objects, queues_cumuli_in_event=self.queues_cumuli_in_event, event_nr=self.event_nr)
-                self.reset_cumuli_et_al()
+                self.reset_cumuli_et_al()   # After reaching a conclusion, reset everything for the next event.
 
         if self.EVENT_FLAG and self.FACE_FOUND_FLAG:
             self.patience_counter += 1
@@ -333,17 +392,21 @@ class Sequential_Cascade_Feeder():
                 print('Nothing to work with => Queque_length:', len(self.main_deque))
                 time.sleep(0.25)
 
-            #Check if user force opens the door
-            # if let_in flag: (removed)
-                self.reset_cumuli_et_al()
-                open_time = 5
-                self.log_message('Ok door is open for ' + str(open_time) + 's...')
-                time.sleep(open_time)
-                self.log_message('Door locked again, back to business...')
+            self.handle_door_logic
+
+    def handle_door_logic(self):
+        if let_in_flag:
+            self.log_message("Manual override: door is open (let_in_flag = True).")
+            # open_door()
+        elif self.NO_PREY_FLAG:
+            self.log_message("Cat is clean — door opened automatically.")
+            # open_door()
+        else:
+            self.log_message("Door stays closed.")
 
     def dummy_queque_handler(self):
         # Do this to force run all networks s.t. the network inference time stabilizes
-        self.single_debug()
+        self.single_debug() # Runs a warm-up inference on a static image to "prime" the ML models
 
         dummyque = DummyDQueque()
         dummy_thread = Thread(target=dummyque.dummy_queque_filler, args=(self.main_deque,))
@@ -356,7 +419,7 @@ class Sequential_Cascade_Feeder():
                 self.log_message(message='Running Hot... had to kill Queque!')
 
             elif len(self.main_deque) > self.DEFAULT_FPS_OFFSET:
-                self.queque_worker()
+                self.queque_worker()    # Runs your detection logic on a selected frame
 
             else:
                 print('Nothing to work with => Queque_length:', len(self.main_deque))
@@ -640,3 +703,32 @@ class DummyDQueque():
 if __name__ == '__main__':
     sq_cascade = Sequential_Cascade_Feeder()
     sq_cascade.queque_handler()
+
+
+import pytz
+from datetime import datetime
+
+def prey_detected(rtsp_url: str = "rtsp://169.254.1.1:554/live/0/MAIN") -> bool:
+    """
+    Grab a single frame from the IP camera and run the cascade once.
+    Returns True if prey is detected, False otherwise.
+    """
+    # 1) capture a frame
+    cam = Camera(ip_camera_url=rtsp_url)
+    ret, frame = cam.cap.read()
+    if not ret:
+        raise RuntimeError("Failed to grab frame from camera")
+
+    # 2) wrap in your Event_Element
+    ts = datetime.now(pytz.timezone("America/Montevideo"))\
+                 .strftime("%Y_%m_%d_%H-%M-%S.%f")
+    evt = Event_Element(img_name=ts, cc_target_img=frame)
+
+    # 3) run the cascade once
+    cascade = Cascade()
+    out_obj = cascade.do_single_cascade(evt)
+
+    # 4) interpret the output class directly
+    #    (pc_prey_class is True if prey, False otherwise)
+    return bool(out_obj.pc_prey_class)
+    
