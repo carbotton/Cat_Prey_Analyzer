@@ -26,6 +26,7 @@ from camera_class import Camera
 - Change these two lines because they returned error (older versions of telegram bot):
 		self.bot_updater = Updater(self.BOT_TOKEN, update_queue)
 		self.bot_dispatcher = self.bot_updater.dispatcher
+		
 	Now we use:
 		self.bot_app = ApplicationBuilder().token(self.BOT_TOKEN).build()
 		
@@ -42,6 +43,7 @@ from camera_class import Camera
         self.bot_dispatcher.add_handler(letin)
         reboot = CommandHandler('reboot', self.node_reboot)
         self.bot_dispatcher.add_handler(reboot)
+        
 	For these:
         self.bot_app.add_handler(CommandHandler("help", self.bot_help_cmd))
         self.bot_app.add_handler(CommandHandler("nodestatus", self.bot_send_status))
@@ -60,7 +62,7 @@ from camera_class import Camera
 ### 2025.05.29
 - Expose new function prey_detected() to use outside of this file
 
-# caCam_starter.sh
+# catCam_starter.sh
 ### 2025.03.02
 - Change path from
 	export PYTHONPATH=$PYTHONPATH:/home/pi/tensorflow/models/research:/home/pi/tensorflow/models/research/slim:/home/pi/.local/lib/python3.7/site-packages
