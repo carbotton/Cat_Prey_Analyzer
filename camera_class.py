@@ -34,7 +34,7 @@ class Camera:
             timestamp = datetime.now(pytz.timezone('Europe/Zurich')).strftime("%Y_%m_%d_%H-%M-%S.%f")
             deque.append((timestamp, frame))
             
-            print("Quelength:", len(deque), "Streamsize:", sys.getsizeof(frame))
+            #print("Quelength:", len(deque), "Streamsize:", sys.getsizeof(frame))
             
             time.sleep(1 / 3)  # Maintain ~3 FPS like the original script
     

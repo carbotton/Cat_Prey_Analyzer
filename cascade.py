@@ -15,7 +15,6 @@ sys.path.append('/home/carbotton')
 from model_stages import PC_Stage, FF_Stage, Eye_Stage, Haar_Stage, CC_MobileNet_Stage
 from camera_class import Camera
 cat_cam_py = str(Path(os.getcwd()).parents[0])
-let_in_flag = False  # This will be updated by GPIO code elsewhere
 
 
 class Spec_Event_Handler():
@@ -61,8 +60,8 @@ class Spec_Event_Handler():
                 single_cascade.ff_bbs_inference_time,
                 single_cascade.ff_haar_inference_time,
                 single_cascade.pc_inference_time]))
-            print("Total Inference Time:", single_cascade.total_inference_time)
-            print('Total Runtime:', time.time() - start_time)
+            #print("Total Inference Time:", single_cascade.total_inference_time)
+            #print('Total Runtime:', time.time() - start_time)
 
             # Write img to output dir and log csv of each event
             cv2.imwrite(os.path.join(self.out_dir, single_cascade.img_name), single_cascade.output_img)
@@ -81,9 +80,11 @@ class Sequential_Cascade_Feeder():
         logging.info(f"{caption} (image saved to {img_path})")
         print(f"{caption} (image saved to {img_path})")
         
-    def __init__(self):
-        self.log_dir = os.path.join(os.getcwd(), 'log')
-        print('Log Dir:', self.log_dir)
+    def __init__(self, door_decision_cb=None):
+        # Use cwd for logging (main.py will chdir into CAT_PREY_DIR before running)
+        self.log_dir = os.path.join(os.getcwd(), "log")
+        print("Log Dir:", self.log_dir)
+
         self.event_nr = 0
         self.base_cascade = Cascade()
         self.DEFAULT_FPS_OFFSET = 2
@@ -95,7 +96,7 @@ class Sequential_Cascade_Feeder():
         self.patience_counter = 0
         self.PATIENCE_FLAG = False
         self.FACE_FOUND_FLAG = False
-        self.event_reset_threshold = 6
+        self.event_reset_threshold = 30 # the cat must be missing for 30 consecutive checks before the event is considered over.
         self.event_reset_counter = 0
         self.cumulus_points = 0
         self.cumulus_prey_threshold = -10
@@ -104,13 +105,22 @@ class Sequential_Cascade_Feeder():
         self.face_counter = 0
         self.PREY_FLAG = None
         self.NO_PREY_FLAG = None
-        self.queues_cumuli_in_event = []        
+        self.queues_cumuli_in_event = []
         self.processing_pool = []
         self.main_deque = deque()
-
-        self.log_image_dir = os.path.join(os.getcwd(), 'log_images')
-        os.makedirs(self.log_image_dir, exist_ok=True)
         
+        self.cat_present_counter = 0
+        self.cat_absent_counter = 0
+        self.cat_present_threshold = 2     # start event after 2 hits
+        self.cat_absent_threshold = 20     # end event after 20 misses
+
+
+        # Decision hook (pure output)
+        self.door_decision_cb = door_decision_cb
+        self.last_decision_event_nr = None
+
+        self.log_image_dir = os.path.join(os.getcwd(), "log_images")
+        os.makedirs(self.log_image_dir, exist_ok=True)        
 
     def reset_cumuli_et_al(self):
         self.EVENT_FLAG = False
@@ -136,7 +146,7 @@ class Sequential_Cascade_Feeder():
             print('terminating oldest processes Len:', len(self.processing_pool))
             for p in self.processing_pool[0:int(len(self.processing_pool)/2)]:
                 p.terminate()
-            print('Now processes Len:', len(self.processing_pool))
+            #print('Now processes Len:', len(self.processing_pool))
 
     def log_event_to_csv(self, event_obj, queues_cumuli_in_event, event_nr):
         csv_name = 'event_log.csv'
@@ -276,82 +286,102 @@ class Sequential_Cascade_Feeder():
         return imgNr
 
     def queque_worker(self):
-        print('Working the Queque with len:', len(self.main_deque)) # Log current queue size
-        start_time = time.time()    # Start timer to measure how long inference takes
-        #Feed the latest image in the Queue through the cascade
-        cascade_obj = self.feed(target_img=self.main_deque[self.fps_offset][1], img_name=self.main_deque[self.fps_offset][0])[1]    # Feeds a frame (selected by fps_offset) into the ML pipeline.
-        print('Runtime:', time.time() - start_time)     # Logs how long inference took.
-        done_timestamp = datetime.now(pytz.timezone('America/Montevideo')).strftime("%Y_%m_%d_%H-%M-%S.%f")
-        print('Timestamp at Done Runtime:', done_timestamp)
+        #print('Working the Queque with len:', len(self.main_deque))
+        start_time = time.time()
 
-        overhead = datetime.strptime(done_timestamp, "%Y_%m_%d_%H-%M-%S.%f") - datetime.strptime(self.main_deque[self.fps_offset][0], "%Y_%m_%d_%H-%M-%S.%f")   # Calculates latency between frame capture and processing
-        print('Overhead:', overhead.total_seconds())
-                        
+        cascade_obj = self.feed(
+            target_img=self.main_deque[self.fps_offset][1],
+            img_name=self.main_deque[self.fps_offset][0]
+        )[1]
+
+        #print('Runtime:', time.time() - start_time)
+        #done_timestamp = datetime.now(pytz.timezone('America/Montevideo')).strftime("%Y_%m_%d_%H-%M-%S.%f")
+        done_timestamp = datetime.utcnow().strftime("%Y_%m_%d_%H-%M-%S.%f")
+        #print('Timestamp at Done Runtime:', done_timestamp)
+
+        overhead = datetime.strptime(done_timestamp, "%Y_%m_%d_%H-%M-%S.%f") - datetime.strptime(
+            self.main_deque[self.fps_offset][0], "%Y_%m_%d_%H-%M-%S.%f"
+        )
+        #print('Overhead:', overhead.total_seconds())
+
         # Always delete the left part (clear used frames)
         for i in range(self.fps_offset + 1):
             self.main_deque.popleft()
 
-        if cascade_obj.cc_cat_bool == True: # CAT DETECTED
-            #We are inside an event => add event_obj to list
-            # Start or continue an "event" — which is a series of cat-related frames
-            # Get a new event ID and store this frame.
+        if cascade_obj.cc_cat_bool == True:  # CAT DETECTED
             self.EVENT_FLAG = True
             self.event_nr = self.get_event_nr()
             self.event_objects.append(cascade_obj)
 
-            #Last cat pic 
-            
             self.fps_offset = 0
-            #If face found add the cumulus points
+
             if cascade_obj.face_bool:
                 self.face_counter += 1
                 self.cumulus_points += (50 - int(round(100 * cascade_obj.pc_prey_val)))
                 self.FACE_FOUND_FLAG = True
 
-            print('CUMULUS:', self.cumulus_points)
-            self.queues_cumuli_in_event.append((len(self.main_deque),self.cumulus_points, done_timestamp))
+            #print('CUMULUS:', self.cumulus_points)
+            self.queues_cumuli_in_event.append((len(self.main_deque), self.cumulus_points, done_timestamp))
 
-            #Check the cumuli points and set flags if necessary
+            # Check the cumuli points and set flags if necessary
             if self.face_counter > 0 and self.PATIENCE_FLAG:
-                if self.cumulus_points / self.face_counter > self.cumulus_no_prey_threshold:
+                avg = self.cumulus_points / self.face_counter  # <-- Step 2: compute once
+
+                if avg > self.cumulus_no_prey_threshold:
                     self.NO_PREY_FLAG = True
                     print('NO PREY DETECTED... YOU CLEAN...')
-                    p = Process(target=self.send_no_prey_message, args=(self.event_objects, self.cumulus_points / self.face_counter,), daemon=True)
+
+                    p = Process(target=self.send_no_prey_message, args=(self.event_objects, avg,), daemon=True)
                     p.start()
                     self.processing_pool.append(p)
-                    #self.log_event_to_csv(event_obj=self.event_objects, queues_cumuli_in_event=self.queues_cumuli_in_event, event_nr=self.event_nr)
+
+                    # <-- Step 2: trigger door decision BEFORE reset
+                    self.handle_door_logic(decision="no_prey", score=avg)
+
                     self.reset_cumuli_et_al()
-                elif self.cumulus_points / self.face_counter < self.cumulus_prey_threshold:
+
+                elif avg < self.cumulus_prey_threshold:
                     self.PREY_FLAG = True
                     print('IT IS A PREY!!!!!')
-                    p = Process(target=self.send_prey_message, args=(self.event_objects, self.cumulus_points / self.face_counter,), daemon=True)
+
+                    p = Process(target=self.send_prey_message, args=(self.event_objects, avg,), daemon=True)
                     p.start()
                     self.processing_pool.append(p)
-                    #self.log_event_to_csv(event_obj=self.event_objects, queues_cumuli_in_event=self.queues_cumuli_in_event, event_nr=self.event_nr)
+
+                    # <-- Step 2: trigger door decision BEFORE reset
+                    self.handle_door_logic(decision="prey", score=avg)
+
                     self.reset_cumuli_et_al()
+
                 else:
                     self.NO_PREY_FLAG = False
                     self.PREY_FLAG = False
 
-            #Cat was found => still belongs to event => acts as dk state
+            # Cat was found => still belongs to event => acts as dk state
             self.event_reset_counter = 0
 
-        #No cat detected => reset event_counters if necessary
         else:
             print('NO CAT FOUND!')
             self.event_reset_counter += 1
+
             if self.event_reset_counter >= self.event_reset_threshold:
-                # If was True => event now over => clear queque
                 if self.EVENT_FLAG == True:
                     print('CLEARED QUEQUE BECAUSE EVENT OVER WITHOUT CONCLUSION...')
-                    #TODO QUICK FIX
+
+                    # TODO QUICK FIX
                     if self.face_counter == 0:
                         self.face_counter = 1
-                    p = Process(target=self.send_dk_message, args=(self.event_objects, self.cumulus_points / self.face_counter,), daemon=True)
+
+                    avg = self.cumulus_points / self.face_counter  # <-- Step 2: compute avg for dk
+
+                    p = Process(target=self.send_dk_message, args=(self.event_objects, avg,), daemon=True)
                     p.start()
                     self.processing_pool.append(p)
-                    #self.log_event_to_csv(event_obj=self.event_objects, queues_cumuli_in_event=self.queues_cumuli_in_event, event_nr=self.event_nr)
-                self.reset_cumuli_et_al()   # After reaching a conclusion, reset everything for the next event.
+
+                    # <-- Step 2: trigger door decision BEFORE reset
+                    self.handle_door_logic(decision="dk", score=avg)
+
+                self.reset_cumuli_et_al()
 
         if self.EVENT_FLAG and self.FACE_FOUND_FLAG:
             self.patience_counter += 1
@@ -360,19 +390,22 @@ class Sequential_Cascade_Feeder():
         if self.face_counter > 1:
             self.PATIENCE_FLAG = True
 
+
     def single_debug(self):
         start_time = time.time()
         target_img_name = 'dummy_img.jpg'
         target_img = cv2.imread(os.path.join(cat_cam_py, 'Cat_Prey_Analyzer/readme_images/lenna_casc_Node1_001557_02_2020_05_24_09-49-35.jpg'))
         cascade_obj = self.feed(target_img=target_img, img_name=target_img_name)[1]
-        print('Runtime:', time.time() - start_time)
+        #print('Runtime:', time.time() - start_time)
         return cascade_obj
 
     def queque_handler(self):
         # Do this to force run all networks s.t. the network inference time stabilizes
         self.single_debug()
 
-        camera = Camera(ip_camera_url='rtsp://169.254.1.1:554/live/0/MAIN')
+        #camera = Camera(ip_camera_url='rtsp://169.254.1.1:554/live/0/MAIN')
+        camera = Camera(ip_camera_url='rtsp://169.254.1.1:554/live/0/MAIN?transport=tcp')
+
         camera_thread = Thread(target=camera.fill_queue, args=(self.main_deque,), daemon=True)
         camera_thread.start()
 
@@ -389,20 +422,9 @@ class Sequential_Cascade_Feeder():
                 self.queque_worker()
 
             else:
-                print('Nothing to work with => Queque_length:', len(self.main_deque))
+                #print('Nothing to work with => Queque_length:', len(self.main_deque))
                 time.sleep(0.25)
 
-            self.handle_door_logic
-
-    def handle_door_logic(self):
-        if let_in_flag:
-            self.log_message("Manual override: door is open (let_in_flag = True).")
-            # open_door()
-        elif self.NO_PREY_FLAG:
-            self.log_message("Cat is clean — door opened automatically.")
-            # open_door()
-        else:
-            self.log_message("Door stays closed.")
 
     def dummy_queque_handler(self):
         # Do this to force run all networks s.t. the network inference time stabilizes
@@ -422,16 +444,8 @@ class Sequential_Cascade_Feeder():
                 self.queque_worker()    # Runs your detection logic on a selected frame
 
             else:
-                print('Nothing to work with => Queque_length:', len(self.main_deque))
+                #print('Nothing to work with => Queque_length:', len(self.main_deque))
                 time.sleep(0.25)
-
-            #Check if user force opens the door
-            # if let_in flag: (removed)
-                self.reset_cumuli_et_al()
-                open_time = 5
-                self.log_message('Ok door is open for ' + str(open_time) + 's...')
-                time.sleep(open_time)
-                self.log_message('Door locked again, back to business...')
 
     def feed(self, target_img, img_name):
         target_event_obj = Event_Element(img_name=img_name, cc_target_img=target_img)
@@ -447,9 +461,23 @@ class Sequential_Cascade_Feeder():
             single_cascade.ff_haar_inference_time,
             single_cascade.pc_inference_time]))
         total_runtime = time.time() - start_time
-        print('Total Runtime:', total_runtime)
+        #print('Total Runtime:', total_runtime)
 
         return total_runtime, single_cascade
+            
+    def handle_door_logic(self, decision: str, score: float | None = None):
+        """
+        decision: 'prey' | 'no_prey' | 'dk'
+        score: optional (avg cumuli)
+        """
+        # Fire once per event decision
+        if self.last_decision_event_nr == self.event_nr:
+            return
+        self.last_decision_event_nr = self.event_nr
+
+        if self.door_decision_cb is not None:
+            self.door_decision_cb(decision=decision, score=score, event_nr=self.event_nr)
+
 
 class Event_Element():
     def __init__(self, img_name, cc_target_img):
@@ -490,14 +518,14 @@ class Cascade:
         self.haar_stage = Haar_Stage()
 
     def do_single_cascade(self, event_img_object):
-        print(event_img_object.img_name)
+        #print(event_img_object.img_name)
         cc_target_img = event_img_object.cc_target_img
         original_copy_img = cc_target_img.copy()
 
         #Do CC
         start_time = time.time()
         dk_bool, cat_bool, bbs_target_img, pred_cc_bb_full, cc_inference_time = self.do_cc_mobile_stage(cc_target_img=cc_target_img)
-        print('CC_Do Time:', time.time() - start_time)
+        #print('CC_Do Time:', time.time() - start_time)
         event_img_object.cc_cat_bool = cat_bool
         event_img_object.cc_pred_bb = pred_cc_bb_full
         event_img_object.bbs_target_img = bbs_target_img
@@ -547,8 +575,8 @@ class Cascade:
 
                 #Do PC
                 pred_class, pred_val, inference_time = self.do_pc_stage(pc_target_img=snout_crop)
-                print('Prey Prediction: ' + str(pred_class))
-                print('Pred_Val: ', str('%.2f' % pred_val))
+                #print('Prey Prediction: ' + str(pred_class))
+                #print('Pred_Val: ', str('%.2f' % pred_val))
                 pc_str = ' PC_Pred: ' + str(pred_class) + ' @ ' + str('%.2f' % pred_val)
                 color = (0, 0, 255) if pred_class else (0, 255, 0)
                 rec_img = self.input_text(img=rec_img, text=pc_str, text_pos=(15, 100), color=color)
@@ -697,11 +725,12 @@ class DummyDQueque():
         while(True):
             img_name = datetime.now(pytz.timezone('America/Montevideo')).strftime("%Y_%m_%d_%H-%M-%S.%f")
             main_deque.append((img_name, self.target_img))
-            print("Took image, que-length:", main_deque.__len__())
+            #print("Took image, que-length:", main_deque.__len__())
             time.sleep(0.4)
 
 if __name__ == '__main__':
     sq_cascade = Sequential_Cascade_Feeder()
+    #sq_cascade = Sequential_Cascade_Feeder(door_decision_cb=my_cb)    
     sq_cascade.queque_handler()
 
 

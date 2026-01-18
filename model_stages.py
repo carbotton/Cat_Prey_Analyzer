@@ -6,7 +6,7 @@ import os, cv2, time, sys
 from object_detection.utils import label_map_util
 
 cat_cam_py = str(Path(os.getcwd()).parents[0])
-print('CatCamPy:', cat_cam_py)
+#print('CatCamPy:', cat_cam_py)
 PC_models_dir = os.path.join(cat_cam_py, 'Cat_Prey_Analyzer/models/Prey_Classifier')
 FF_models_dir = os.path.join(cat_cam_py, 'Cat_Prey_Analyzer/models/Face_Fur_Classifier')
 EYE_models_dir = os.path.join(cat_cam_py, 'Cat_Prey_Analyzer/models/Eye_Detector')
@@ -29,9 +29,9 @@ class CC_MobileNet_Stage():
         sys.path.append('..')
 
         # Grab path to current working directory
-        print(os.environ['PYTHONPATH'].split(os.pathsep)[1])
+        #print(os.environ['PYTHONPATH'].split(os.pathsep)[1])
         TF_OD_PATH = os.environ['PYTHONPATH'].split(os.pathsep)[1] + '/object_detection'
-        print(TF_OD_PATH)
+        #print(TF_OD_PATH)
 
         # Path to frozen detection graph .pb file, which contains the model that is used
         # for object detection.
@@ -100,7 +100,7 @@ class CC_MobileNet_Stage():
                                                                     self.detection_scores, self.detection_classes,
                                                                     self.num_detections, self.image_tensor,
                                                                     self.category_index)
-        print('CC_time: ', inference_time)
+        #print('CC_time: ', inference_time)
         return pred_cc_bb, pred_class, inference_time
 
     def draw_rectangle(self, img, box, color, text):
@@ -164,7 +164,7 @@ class Haar_Stage():
 
     def haar_do(self, target_img, full_img, cc_bbs):
         pred_bb, inference_time, haar_found_bool = self.haar_predict(input=target_img)
-        print('Haar_time: ', str('%.2f' % inference_time))
+        #print('Haar_time: ', str('%.2f' % inference_time))
 
         pred_bb_full = pred_bb[:]
 
