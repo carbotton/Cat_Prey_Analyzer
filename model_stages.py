@@ -120,34 +120,60 @@ class CC_MobileNet_Stage():
 
     # This function contains the code to detect a pet, determine if it's
     # inside or outside, and send a text to the user's phone.
-    def pet_detector(self, frame, sess, detection_boxes, detection_scores, detection_classes, num_detections, image_tensor, category_index):
+    def pet_detector(
+        self,
+        frame,
+        sess,
+        detection_boxes,
+        detection_scores,
+        detection_classes,
+        num_detections,
+        image_tensor,
+        category_index,
+        score_thresh: float = 0.45,
+        max_checks: int = 10,
+    ):
         frame_expanded = np.expand_dims(frame, axis=0)
-
-        # Perform the actual detection by running the model with the image as input
+       
         start_time = time.time()
         (boxes, scores, classes, num) = sess.run(
             [detection_boxes, detection_scores, detection_classes, num_detections],
-            feed_dict={image_tensor: frame_expanded})
-        end_time = time.time()
-        inference_time = end_time - start_time
-
-        # Check the class of the top detected object by looking at classes[0][0].
-        # If the top detected object is a cat (17) or a dog (18) (or a teddy bear (88) for test purposes),
-        # find its center coordinates by looking at the boxes[0][0] variable.
-        # boxes[0][0] variable holds coordinates of detected objects as (ymin, xmin, ymax, xmax)
-        xmin = int(boxes[0][0][1] * self.img_org.shape[1])
-        ymin = int(boxes[0][0][0] * self.img_org.shape[0])
-        xmax = int(boxes[0][0][3] * self.img_org.shape[1])
-        ymax = int(boxes[0][0][2] * self.img_org.shape[0])
-        target_box = np.array([(xmin,ymin), (xmax,ymax)]).reshape((-1, 2))
-
-
-
-        if (int(classes[0][0]) == 17 or int(classes[0][0]) == 18):
+            feed_dict={image_tensor: frame_expanded},
+        )
+        inference_time = time.time() - start_time
+     
+        # Convert to 1D arrays
+        scores_ = scores[0]
+        classes_ = classes[0].astype(np.int32)
+        boxes_ = boxes[0]
+      
+        # Find best cat/dog detection among top max_checks above threshold
+        best_idx = None
+        best_score = 0.0
+     
+        for i in range(min(max_checks, len(scores_))):
+            if scores_[i] < score_thresh:
+                continue
+            if classes_[i] in (17, 18):  # cat or dog
+                if scores_[i] > best_score:
+                    best_score = float(scores_[i])
+                    best_idx = i
+    
+        # If found, compute bbox from that detection; else fall back to bbox[0] (for debugging)
+        idx = best_idx if best_idx is not None else 0
+      
+        ymin, xmin, ymax, xmax = boxes_[idx]
+        xmin = int(xmin * self.img_org.shape[1])
+        ymin = int(ymin * self.img_org.shape[0])
+        xmax = int(xmax * self.img_org.shape[1])
+        ymax = int(ymax * self.img_org.shape[0])
+        target_box = np.array([(xmin, ymin), (xmax, ymax)]).reshape((-1, 2))
+        
+        if best_idx is not None:
             return True, target_box, inference_time
-
         else:
             return False, target_box, inference_time
+
 
 class Haar_Stage():
     def __init__(self):
