@@ -286,7 +286,6 @@ class Sequential_Cascade_Feeder():
         return imgNr
 
     def queque_worker(self):
-        #print('Working the Queque with len:', len(self.main_deque))
         start_time = time.time()
 
         cascade_obj = self.feed(
@@ -294,25 +293,68 @@ class Sequential_Cascade_Feeder():
             img_name=self.main_deque[self.fps_offset][0]
         )[1]
 
-        #print('Runtime:', time.time() - start_time)
-        #done_timestamp = datetime.now(pytz.timezone('America/Montevideo')).strftime("%Y_%m_%d_%H-%M-%S.%f")
         done_timestamp = datetime.utcnow().strftime("%Y_%m_%d_%H-%M-%S.%f")
-        #print('Timestamp at Done Runtime:', done_timestamp)
 
+        # Overhead (kept, but not printed)
         overhead = datetime.strptime(done_timestamp, "%Y_%m_%d_%H-%M-%S.%f") - datetime.strptime(
             self.main_deque[self.fps_offset][0], "%Y_%m_%d_%H-%M-%S.%f"
         )
-        #print('Overhead:', overhead.total_seconds())
 
         # Always delete the left part (clear used frames)
-        for i in range(self.fps_offset + 1):
+        for _ in range(self.fps_offset + 1):
             self.main_deque.popleft()
 
-        if cascade_obj.cc_cat_bool == True:  # CAT DETECTED
+        # ------------------------------------------------------------------
+        # FIX 2: Cat/no-cat debounce (stabilize event start/end)
+        #
+        # - We do NOT immediately treat cc_cat_bool False as "no cat"
+        # - We require N consecutive "cat" frames to enter event
+        # - We require M consecutive "no cat" frames to end event
+        # ------------------------------------------------------------------
+        if cascade_obj.cc_cat_bool:
+            self.cat_present_counter += 1
+            self.cat_absent_counter = 0
+        else:
+            self.cat_absent_counter += 1
+            self.cat_present_counter = 0
+
+        cat_present_stable = self.cat_present_counter >= self.cat_present_threshold
+        cat_absent_stable = self.cat_absent_counter >= self.cat_absent_threshold
+
+        # -------------------------
+        # Event start gating
+        # -------------------------
+        if not self.EVENT_FLAG:
+            # Not in an event yet -> only start after stable cat presence
+            if not cat_present_stable:
+                # Keep waiting; do not spam "NO CAT FOUND!" or alter event state
+                # Optional: print occasionally for debugging
+                # print(f"Waiting cat... hits={self.cat_present_counter}/{self.cat_present_threshold}")
+                return
+
+            # Stable cat presence -> start event now
             self.EVENT_FLAG = True
             self.event_nr = self.get_event_nr()
-            self.event_objects.append(cascade_obj)
+            self.event_objects = []
+            self.queues_cumuli_in_event = []
+            self.patience_counter = 0
+            self.PATIENCE_FLAG = False
+            self.FACE_FOUND_FLAG = False
+            self.face_counter = 0
+            self.cumulus_points = 0
+            self.NO_PREY_FLAG = None
+            self.PREY_FLAG = None
+            self.fps_offset = 0
+            self.event_reset_counter = 0
 
+            print("EVENT START (stable cat detected)")
+
+        # -------------------------
+        # In-event processing
+        # -------------------------
+        # Only accumulate evidence when we are in an event AND this frame has cat
+        if self.EVENT_FLAG and cascade_obj.cc_cat_bool:
+            self.event_objects.append(cascade_obj)
             self.fps_offset = 0
 
             if cascade_obj.face_bool:
@@ -320,75 +362,75 @@ class Sequential_Cascade_Feeder():
                 self.cumulus_points += (50 - int(round(100 * cascade_obj.pc_prey_val)))
                 self.FACE_FOUND_FLAG = True
 
-            #print('CUMULUS:', self.cumulus_points)
             self.queues_cumuli_in_event.append((len(self.main_deque), self.cumulus_points, done_timestamp))
 
             # Check the cumuli points and set flags if necessary
             if self.face_counter > 0 and self.PATIENCE_FLAG:
-                avg = self.cumulus_points / self.face_counter  # <-- Step 2: compute once
+                avg = self.cumulus_points / self.face_counter
 
                 if avg > self.cumulus_no_prey_threshold:
                     self.NO_PREY_FLAG = True
-                    print('NO PREY DETECTED... YOU CLEAN...')
+                    print("NO PREY DETECTED... YOU CLEAN...")
 
                     p = Process(target=self.send_no_prey_message, args=(self.event_objects, avg,), daemon=True)
                     p.start()
                     self.processing_pool.append(p)
 
-                    # <-- Step 2: trigger door decision BEFORE reset
                     self.handle_door_logic(decision="no_prey", score=avg)
-
                     self.reset_cumuli_et_al()
+                    return
 
                 elif avg < self.cumulus_prey_threshold:
                     self.PREY_FLAG = True
-                    print('IT IS A PREY!!!!!')
+                    print("IT IS A PREY!!!!!")
 
                     p = Process(target=self.send_prey_message, args=(self.event_objects, avg,), daemon=True)
                     p.start()
                     self.processing_pool.append(p)
 
-                    # <-- Step 2: trigger door decision BEFORE reset
                     self.handle_door_logic(decision="prey", score=avg)
-
                     self.reset_cumuli_et_al()
+                    return
 
                 else:
                     self.NO_PREY_FLAG = False
                     self.PREY_FLAG = False
 
-            # Cat was found => still belongs to event => acts as dk state
+            # Cat found -> event continues
             self.event_reset_counter = 0
 
-        else:
-            print('NO CAT FOUND!')
-            self.event_reset_counter += 1
+        # -------------------------
+        # Event end gating (stable absence)
+        # -------------------------
+        if self.EVENT_FLAG and cat_absent_stable:
+            print("EVENT END (stable no-cat)")
 
-            if self.event_reset_counter >= self.event_reset_threshold:
-                if self.EVENT_FLAG == True:
-                    print('CLEARED QUEQUE BECAUSE EVENT OVER WITHOUT CONCLUSION...')
+            # If event had no conclusion, emit DK using current avg (or safe fallback)
+            if self.face_counter == 0:
+                # Avoid division by zero; this keeps behavior similar to your old quick fix
+                avg = 0.0
+            else:
+                avg = self.cumulus_points / self.face_counter
 
-                    # TODO QUICK FIX
-                    if self.face_counter == 0:
-                        self.face_counter = 1
+            if len(self.event_objects) > 0:
+                p = Process(target=self.send_dk_message, args=(self.event_objects, avg,), daemon=True)
+                p.start()
+                self.processing_pool.append(p)
 
-                    avg = self.cumulus_points / self.face_counter  # <-- Step 2: compute avg for dk
+            self.handle_door_logic(decision="dk", score=avg)
+            self.reset_cumuli_et_al()
+            return
 
-                    p = Process(target=self.send_dk_message, args=(self.event_objects, avg,), daemon=True)
-                    p.start()
-                    self.processing_pool.append(p)
-
-                    # <-- Step 2: trigger door decision BEFORE reset
-                    self.handle_door_logic(decision="dk", score=avg)
-
-                self.reset_cumuli_et_al()
-
+        # -------------------------
+        # Patience logic (unchanged)
+        # -------------------------
         if self.EVENT_FLAG and self.FACE_FOUND_FLAG:
             self.patience_counter += 1
         if self.patience_counter > 2:
             self.PATIENCE_FLAG = True
         if self.face_counter > 1:
             self.PATIENCE_FLAG = True
+
 
 
     def single_debug(self):
